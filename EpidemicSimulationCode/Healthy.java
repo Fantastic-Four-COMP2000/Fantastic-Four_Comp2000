@@ -8,13 +8,20 @@ public class Healthy extends Person {
     
     // Creates a new healthy person
     public Healthy(String name,int age,float x,float y,float speedX,float speedY) {
-     super(name, age, x, y, speedX, speedY);
+        super(name, age, x, y, speedX, speedY);
     }
     
     // Creates a healthy person while preserving their existing ID and immunity
     public Healthy(int id,String name,int age,float x,float y,float speedX,float speedY,boolean immune) {
 
         super(id, name, age, x, y, speedX, speedY);
+        this.immune = immune;
+    }
+
+    // Another constructor for a healthy person
+    public Healthy(String name, int age, float x, float y, float speedX, float speedY, boolean immune) {
+
+        super(name, age, x, y, speedX, speedY);
         this.immune = immune;
     }
 

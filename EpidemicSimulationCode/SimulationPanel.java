@@ -37,6 +37,8 @@ public class SimulationPanel extends Panel implements Runnable {
     // Time before a recovered person becomes healthy and immune
     private static final long RECOVER_TO_HEALTHY_TIME = 10000;
 
+    // Fraction of the initial population that starts vaccinated/immune
+    private static final double VACCINATION_RATE = 0.05;
     
     public SimulationPanel() {
         setBackground(Color.LIGHT_GRAY);
@@ -44,7 +46,7 @@ public class SimulationPanel extends Panel implements Runnable {
     }
 
     
-    // Creates the initial population with a small number already infected
+    // Creates the initial population with a small number already infected and a few immune
     private void createPeople() {
         for (int i = 0; i < TOTAL_PEOPLE; i++) {
         String name = "Person " + (i + 1);
@@ -52,11 +54,12 @@ public class SimulationPanel extends Panel implements Runnable {
             int age = 18 + (int)(Math.random() * 63);
 
             if (i < START_INFECTED) {
-        people.add(new Infected(
+                people.add(new Infected(
                     name,age,virus,randomX(),randomY(),randomSpeed(),randomSpeed()));
 
             } else {
-        people.add(new Healthy(name,age,randomX(),randomY(),randomSpeed(),randomSpeed()));
+                boolean vaccinated = Math.random() < VACCINATION_RATE;
+                people.add(new Healthy(name,age,randomX(),randomY(),randomSpeed(),randomSpeed(),vaccinated));
             }
         }
     }
@@ -535,30 +538,24 @@ public class SimulationPanel extends Panel implements Runnable {
 
 
     private void drawPeople(Graphics g) {
-
-        for (Person person : people) {
-
+    for (Person person : people) {
+        if (person instanceof Healthy && ((Healthy) person).isImmune()) {
+            g.setColor(Color.CYAN);
+        } else {
             switch (person.getStatus()) {
-
-                case "Healthy":
-                    g.setColor(Color.GREEN);
-                    break;
-
-                case "Infected":
-                    g.setColor(Color.RED);
-                    break;
-
-                case "Recovered":
-                    g.setColor(Color.BLUE);
-                    break;
-
-                default:
-                    g.setColor(Color.BLACK);
+                case "Healthy":   
+                    g.setColor(Color.GREEN); break;
+                case "Infected":  
+                    g.setColor(Color.RED);   break;
+                case "Recovered": 
+                    g.setColor(Color.BLUE);  break;
+                default:         
+                     g.setColor(Color.BLACK); break;
             }
-
-            g.fillOval((int)person.getX(),(int)person.getY(),15,15);
         }
+        g.fillOval((int) person.getX(), (int) person.getY(), 15, 15);
     }
+}
 
 
     // Displays the colour guide for each health state
@@ -568,10 +565,10 @@ public class SimulationPanel extends Panel implements Runnable {
         int y = 15;
 
         g.setColor(Color.WHITE);
-        g.fillRect(x, y, 180, 125);
+        g.fillRect(x, y, 180, 145);
 
         g.setColor(Color.BLACK);
-        g.drawRect(x, y, 180, 125);
+        g.drawRect(x, y, 180, 145);
 
         g.drawString("COLOR GUIDE",x + 15,y + 20);
 
@@ -586,6 +583,9 @@ public class SimulationPanel extends Panel implements Runnable {
 
         drawLegendItem(
                 g,Color.BLACK,"Dead",x,y + 100);
+        
+        drawLegendItem(
+            g,Color.CYAN,"Vaccinated",x,y + 120);
     }
 
 
