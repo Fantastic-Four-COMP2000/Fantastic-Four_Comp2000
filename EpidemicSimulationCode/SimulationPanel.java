@@ -162,6 +162,7 @@ public class SimulationPanel extends Panel implements Runnable {
         }
 
         buildingTreatment(now);
+        vaccinateAtHospital(now);
     }
 
     // Creates three recovery tents at random locations
@@ -345,6 +346,32 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
+    // healthy people who stay in the hospital long enough get vaccinated
+    private void vaccinateAtHospital(long now) {
+        if (!hospitalActive || hospital == null) {
+            return;
+        }
+
+        for (int i = 0; i < people.size(); i++) {
+            if (!(people.get(i) instanceof Healthy)) {
+                continue;
+            }
+            Healthy healthy = (Healthy) people.get(i);
+            if (healthy.isImmune()) {
+                continue;
+            }
+            if (hospital.isPersonInside(healthy)) {
+                if (healthy.getHospitalEntryTime() == -1) {
+                    healthy.setHospitalEntryTime(now);
+                }
+                if (now - healthy.getHospitalEntryTime() >= 2000) {
+                    healthy.setImmune(true);
+                }
+            } else {
+                healthy.setHospitalEntryTime(-1);
+            }
+        }
+    }
 
     // Checks whether infected people remain inside treatment
     // buildings long enough to recover
