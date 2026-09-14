@@ -39,6 +39,9 @@ public class SimulationPanel extends Panel implements Runnable {
 
     // Fraction of the initial population that starts vaccinated/immune
     private static final double VACCINATION_RATE = 0.05;
+
+    // Chance that immunity actually blocks an infection attempt (not 100%)
+    private static final double VACCINE_EFFECTIVENESS = 0.2; // 30%
     
     public SimulationPanel() {
         setBackground(Color.LIGHT_GRAY);
@@ -241,7 +244,7 @@ public class SimulationPanel extends Panel implements Runnable {
                 Healthy healthy = (Healthy) target;
 
                 // Recovered people become immune healthy
-                if (healthy.isImmune()) {
+                if (healthy.isImmune() && Math.random() < VACCINE_EFFECTIVENESS) {
                     continue;
                 }
              if (distance(infected, healthy)<= CONTACT_DISTANCE) {
