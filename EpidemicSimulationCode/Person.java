@@ -1,5 +1,6 @@
 public abstract class Person {
 
+    // Used to automatically assign a unique ID to each new person
     private static int nextId = 1;
 
     private int id;
@@ -11,6 +12,7 @@ public abstract class Person {
     private float speedX;
     private float speedY;
 
+    // Creates a new person and automatically assigns an ID
     public Person(
             String name,
             int age,
@@ -29,6 +31,7 @@ public abstract class Person {
         this.speedY = speedY;
     }
 
+    // Creates a person while preserving an existing ID
     public Person(
             int id,
             String name,
@@ -41,7 +44,8 @@ public abstract class Person {
         this.id = id;
         this.name = name;
         this.age = age;
-         this.x = x;
+        
+        this.x = x;
         this.y = y;
         this.speedX = speedX;
         this.speedY = speedY;
@@ -75,6 +79,7 @@ public abstract class Person {
         return speedY;
     }
 
+    // Moves the person and reverses direction when reaching a boundary
     public void move(int width, int height) {
 
         x += speedX;

@@ -1,3 +1,4 @@
+// Represents a recovery tent used to treat infected people
 public class RecoveryTent extends Building {
 
     public RecoveryTent(

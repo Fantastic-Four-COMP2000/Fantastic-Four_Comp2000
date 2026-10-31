@@ -1,3 +1,4 @@
+// Represents a person who has recovered from the virus
 public class Recovered extends Person {
 
     private long recoveredSince;

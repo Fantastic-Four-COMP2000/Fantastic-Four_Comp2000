@@ -9,9 +9,11 @@ public class SimulationPanel extends Panel implements Runnable {
     private Virus virus = new Virus("Zombie Virus", 45);
     private Hospital hospital;
 
+    // Controls the simulation loop
     private Thread thread;
     private boolean running;
 
+    // Tracks whether treatment buildings are currently visible
     private boolean tentsActive;
     private boolean hospitalActive;
 
@@ -29,14 +31,25 @@ public class SimulationPanel extends Panel implements Runnable {
     // 18 pixels represents about 5mm close contact
     private static final double CONTACT_DISTANCE = 18;
 
+    // Time an infected person can survive before dying
     private static final long DEATH_TIME = 50000;
+
+    // Time before a recovered person becomes healthy and immune
     private static final long RECOVER_TO_HEALTHY_TIME = 10000;
+
+    // Fraction of the initial population that starts vaccinated/immune
+    private static final double VACCINATION_RATE = 0.05;
+
+    // Chance that immunity actually blocks an infection attempt (not 100%)
+    private static final double VACCINE_EFFECTIVENESS = 0.2; // 30%
+    
     public SimulationPanel() {
         setBackground(Color.LIGHT_GRAY);
         createPeople();
     }
-    // ---------- CREATE PEOPLE ----------
 
+    
+    // Creates the initial population with a small number already infected and a few immune
     private void createPeople() {
         for (int i = 0; i < TOTAL_PEOPLE; i++) {
         String name = "Person " + (i + 1);
@@ -44,11 +57,12 @@ public class SimulationPanel extends Panel implements Runnable {
             int age = 18 + (int)(Math.random() * 63);
 
             if (i < START_INFECTED) {
-        people.add(new Infected(
+                people.add(new Infected(
                     name,age,virus,randomX(),randomY(),randomSpeed(),randomSpeed()));
 
             } else {
-        people.add(new Healthy(name,age,randomX(),randomY(),randomSpeed(),randomSpeed()));
+                boolean vaccinated = Math.random() < VACCINATION_RATE;
+                people.add(new Healthy(name,age,randomX(),randomY(),randomSpeed(),randomSpeed(),vaccinated));
             }
         }
     }
@@ -78,9 +92,7 @@ public class SimulationPanel extends Panel implements Runnable {
     return 150 +randomPosition(Math.max(100,getHeight() - 150),objectHeight);
     }
 
-
-    // ---------- START / STOP ----------
-
+    // Initializes buildings and starts the simulation thread
     public void startSimulation() {
 
         if (running) {
@@ -116,7 +128,9 @@ public class SimulationPanel extends Panel implements Runnable {
             thread.interrupt();
         }
     }
-     @Override
+
+    // Main simulation loop that repeatedly updates and redraws the simulation
+    @Override
     public void run() {
         while (running) {
          updateSimulation();
@@ -131,10 +145,8 @@ public class SimulationPanel extends Panel implements Runnable {
             }
         }
     }
-
-
-    // ---------- UPDATE ----------
-
+    
+    // Updates movement, health conditions and building treatment
     private void updateSimulation() {
         long now = System.currentTimeMillis();
             updateBuildings(now);
@@ -153,11 +165,10 @@ public class SimulationPanel extends Panel implements Runnable {
         }
 
         buildingTreatment(now);
+        vaccinateAtHospital(now);
     }
 
-
-    // ---------- BUILDINGS ----------
-
+    // Creates three recovery tents at random locations
     private void spawnTents() {
         tents.clear();
         for (int i = 0; i < 3; i++) {
@@ -165,7 +176,7 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
-
+    // Creates the hospital at a random location
     private void spawnHospital() {
         hospital = new Hospital(randomPosition(getWidth(), 120),randomBuildingY(100),120,100);
     }
@@ -207,15 +218,16 @@ public class SimulationPanel extends Panel implements Runnable {
     }
 
 
-    // ---------- INFECTION ----------
-
+    // Checks close contact between infected and healthy people
+    // and attempts to spread the virus
     private void spreadInfection() {
 
         // Snapshot stops new infections spreading instantly
         ArrayList<Person> snapshot = new ArrayList<>(people);
 
         for (Person infected : snapshot) {
-
+             
+            // Only infected people can spread the virus
             if (!(infected instanceof Infected)) {
                 continue;
             }
@@ -223,7 +235,8 @@ public class SimulationPanel extends Panel implements Runnable {
             for (int i = 0; i < people.size(); i++) {
 
                 Person target = people.get(i);
-
+                 
+                // Only healthy people can become infected
                 if (!(target instanceof Healthy)) {
                     continue;
                 }
@@ -231,7 +244,7 @@ public class SimulationPanel extends Panel implements Runnable {
                 Healthy healthy = (Healthy) target;
 
                 // Recovered people become immune healthy
-                if (healthy.isImmune()) {
+                if (healthy.isImmune() && Math.random() < VACCINE_EFFECTIVENESS) {
                     continue;
                 }
              if (distance(infected, healthy)<= CONTACT_DISTANCE) {
@@ -295,9 +308,8 @@ public class SimulationPanel extends Panel implements Runnable {
                         person.getSpeedY()));
     }
 
-
-    // ---------- NATURAL RECOVERY ----------
-
+    // Gives infected people a chance to recover naturally
+    // based on their age and infection duration
     private void naturalRecovery(long now) {
 
         for (int i = 0; i < people.size(); i++) {
@@ -337,9 +349,35 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
+    // healthy people who stay in the hospital long enough get vaccinated
+    private void vaccinateAtHospital(long now) {
+        if (!hospitalActive || hospital == null) {
+            return;
+        }
 
-    // ---------- BUILDING RECOVERY ----------
+        for (int i = 0; i < people.size(); i++) {
+            if (!(people.get(i) instanceof Healthy)) {
+                continue;
+            }
+            Healthy healthy = (Healthy) people.get(i);
+            if (healthy.isImmune()) {
+                continue;
+            }
+            if (hospital.isPersonInside(healthy)) {
+                if (healthy.getHospitalEntryTime() == -1) {
+                    healthy.setHospitalEntryTime(now);
+                }
+                if (now - healthy.getHospitalEntryTime() >= 2000) {
+                    healthy.setImmune(true);
+                }
+            } else {
+                healthy.setHospitalEntryTime(-1);
+            }
+        }
+    }
 
+    // Checks whether infected people remain inside treatment
+    // buildings long enough to recover
     private void buildingTreatment(long now) {
 
         for (int i = 0; i < people.size(); i++) {
@@ -368,11 +406,13 @@ public class SimulationPanel extends Panel implements Runnable {
 
 
             if (insideTent) {
-
+                 
+                // Start the treatment timer when entering a tent
                 if (infected.getTentEntryTime() == -1) {
                     infected.setTentEntryTime(now);
                 }
-
+                 
+                // Recover after remaining inside the tent for 2 seconds
                 if (now- infected.getTentEntryTime() >= 2000) {
 
                     recover(i, infected);
@@ -381,7 +421,7 @@ public class SimulationPanel extends Panel implements Runnable {
                 }
 
             } else {
-
+                // Leaving the tent resets the treatment timer
                 infected.setTentEntryTime(-1);
             }
 
@@ -403,7 +443,8 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
-
+    // Replaces an infected person with a recovered person
+    // while preserving their identity, position and movement
     private void recover(
             int index,
             Infected infected) {
@@ -419,8 +460,8 @@ public class SimulationPanel extends Panel implements Runnable {
     }
 
 
-    // ---------- RECOVERED -> HEALTHY ----------
-
+    // Converts recovered people back to healthy after the
+    // recovery period and gives them immunity
     private void recoveredToHealthy(long now) {
 
         for (int i = 0; i < people.size(); i++) {
@@ -445,9 +486,7 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
-
-    // ---------- DEATH ----------
-
+    // Converts people who remain infected too long into dead people
     private void checkDeaths(long now) {
 
         for (int i = 0; i < people.size(); i++) {
@@ -458,6 +497,7 @@ public class SimulationPanel extends Panel implements Runnable {
 
             Infected infected = (Infected) people.get(i);
 
+            // Person dies after reaching the maximum infection duration
             if (now - infected.getInfectedSince() >= DEATH_TIME) {
 
                 people.set(i, new Dead(
@@ -470,9 +510,7 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
-
-    // ---------- DRAW ----------
-
+    // Draws all visual elements of the simulation
     @Override
     public void paint(Graphics g) {
 
@@ -530,44 +568,37 @@ public class SimulationPanel extends Panel implements Runnable {
 
 
     private void drawPeople(Graphics g) {
-
-        for (Person person : people) {
-
+    for (Person person : people) {
+        if (person instanceof Healthy && ((Healthy) person).isImmune()) {
+            g.setColor(Color.CYAN);
+        } else {
             switch (person.getStatus()) {
-
-                case "Healthy":
-                    g.setColor(Color.GREEN);
-                    break;
-
-                case "Infected":
-                    g.setColor(Color.RED);
-                    break;
-
-                case "Recovered":
-                    g.setColor(Color.BLUE);
-                    break;
-
-                default:
-                    g.setColor(Color.BLACK);
+                case "Healthy":   
+                    g.setColor(Color.GREEN); break;
+                case "Infected":  
+                    g.setColor(Color.RED);   break;
+                case "Recovered": 
+                    g.setColor(Color.BLUE);  break;
+                default:         
+                     g.setColor(Color.BLACK); break;
             }
-
-            g.fillOval((int)person.getX(),(int)person.getY(),15,15);
         }
+        g.fillOval((int) person.getX(), (int) person.getY(), 15, 15);
     }
+}
 
 
-    // ---------- COLOR GUIDE ----------
-
+    // Displays the colour guide for each health state
     private void drawLegend(Graphics g) {
 
         int x = 15;
         int y = 15;
 
         g.setColor(Color.WHITE);
-        g.fillRect(x, y, 180, 125);
+        g.fillRect(x, y, 180, 145);
 
         g.setColor(Color.BLACK);
-        g.drawRect(x, y, 180, 125);
+        g.drawRect(x, y, 180, 145);
 
         g.drawString("COLOR GUIDE",x + 15,y + 20);
 
@@ -582,6 +613,9 @@ public class SimulationPanel extends Panel implements Runnable {
 
         drawLegendItem(
                 g,Color.BLACK,"Dead",x,y + 100);
+        
+        drawLegendItem(
+            g,Color.CYAN,"Vaccinated",x,y + 120);
     }
 
 
@@ -601,9 +635,7 @@ public class SimulationPanel extends Panel implements Runnable {
         g.drawString(text,x + 35,y);
     }
 
-
-    // ---------- STATISTICS ----------
-
+    // Counts each health state and displays the epidemic statistics
     private void drawStats(Graphics g) {
 
         int healthy = 0;
@@ -612,7 +644,7 @@ public class SimulationPanel extends Panel implements Runnable {
         int dead = 0;
 
 
-        // Polymorphism
+        // Polymorphism: all Person subclasses provide their own health status
         for (Person person : people) {
 
             switch (person.getStatus()) {
@@ -651,7 +683,7 @@ public class SimulationPanel extends Panel implements Runnable {
         g.drawString(String.format("Dead: %d (%.1f%%)",dead,percent(dead, total)),x + 15,124 );
     }
 
-
+    // Calculates the percentage of the population in a given state
     private double percent(
             int amount,
             int total) {
