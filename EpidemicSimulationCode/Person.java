@@ -1,6 +1,6 @@
 public abstract class Person {
 
-    // Used to automatically assign a unique ID to each new person
+    // Used to automatically assign an ID to each new person.
     private static int nextId = 1;
 
     private int id;
@@ -12,7 +12,7 @@ public abstract class Person {
     private float speedX;
     private float speedY;
 
-    // Creates a new person and automatically assigns an ID
+    // Creates a new person and automatically assigns an ID.
     public Person(
             String name,
             int age,
@@ -21,8 +21,11 @@ public abstract class Person {
             float speedX,
             float speedY) {
 
+        // Validate before assigning an ID or storing the data.
+        validateDetails(name, age);
+
         this.id = nextId++;
-        this.name = name;
+        this.name = name.trim();
         this.age = age;
 
         this.x = x;
@@ -31,7 +34,7 @@ public abstract class Person {
         this.speedY = speedY;
     }
 
-    // Creates a person while preserving an existing ID
+    // Creates a person while preserving an existing ID.
     public Person(
             int id,
             String name,
@@ -41,14 +44,32 @@ public abstract class Person {
             float speedX,
             float speedY) {
 
+        validateDetails(name, age);
+
         this.id = id;
-        this.name = name;
+        this.name = name.trim();
         this.age = age;
-        
+
         this.x = x;
         this.y = y;
         this.speedX = speedX;
         this.speedY = speedY;
+    }
+
+    // Both constructors share the same name and age rules.
+    private static void validateDetails(String name, int age) {
+
+        if (name == null || name.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Person name cannot be empty."
+            );
+        }
+
+        if (age < 0 || age > 120) {
+            throw new IllegalArgumentException(
+                    "Age must be between 0 and 120."
+            );
+        }
     }
 
     public int getId() {
@@ -79,7 +100,7 @@ public abstract class Person {
         return speedY;
     }
 
-    // Moves the person and reverses direction when reaching a boundary
+    // Moves the person and reverses direction at a boundary.
     public void move(int width, int height) {
 
         x += speedX;
@@ -98,6 +119,9 @@ public abstract class Person {
 
     @Override
     public String toString() {
-    return "ID: " + id + ", Name: " + name+ ", Age: " + age + ", Status: " + getStatus();
+        return "ID: " + id
+                + ", Name: " + name
+                + ", Age: " + age
+                + ", Status: " + getStatus();
     }
 }
