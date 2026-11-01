@@ -1,7 +1,9 @@
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class SimulationPanel extends Panel implements Runnable {
 
@@ -11,11 +13,16 @@ public class SimulationPanel extends Panel implements Runnable {
     private Virus virus = new Virus("Zombie Virus", 45);
     private Hospital hospital;
 
-    // Controls the simulation thread.
-    private Thread thread;
-    private boolean running;
+    // The selected infection rule and statistics mode.
+    private final InfectionStrategy infectionStrategy;
+    private final boolean parallelStatistics;
 
-    // Shows whether treatment buildings are currently available.
+    private Thread thread;
+
+    // stopSimulation() and run() access this from different threads.
+    private volatile boolean running;
+
+    // Tracks whether treatment buildings are currently available.
     private boolean tentsActive;
     private boolean hospitalActive;
 
@@ -33,39 +40,51 @@ public class SimulationPanel extends Panel implements Runnable {
     // People within this distance can pass on the infection.
     private static final double CONTACT_DISTANCE = 18;
 
-    // An infected person dies after 50 seconds without recovery.
     private static final long DEATH_TIME = 50000;
-
-    // Recovered people become healthy with immunity after 10 seconds.
     private static final long RECOVER_TO_HEALTHY_TIME = 10000;
 
     // Each initially healthy person has a 5% chance of vaccination.
     private static final double VACCINATION_RATE = 0.05;
 
-    // Immunity has a 20% chance of blocking an infection attempt.
+    // Immunity blocks an infection attempt with a 20% probability.
     private static final double VACCINE_EFFECTIVENESS = 0.2;
 
     /*
-     * The simulation thread calculates the counts.
-     * The drawing thread reads the latest completed map.
-     *
-     * volatile makes the replacement map visible to the drawing thread.
-     * Each published map is unmodifiable.
+     * The simulation publishes a completed, unmodifiable map.
+     * volatile makes the replacement visible to the drawing thread.
      */
     private volatile Map<String, Long> statusCounts = Map.of();
 
+    // Keeps the original age-based behaviour as the default.
     public SimulationPanel() {
+        this(new AgeBasedInfectionStrategy(), false);
+    }
+
+    // Receives the infection rule and statistics mode from Main.
+    public SimulationPanel(
+            InfectionStrategy infectionStrategy,
+            boolean parallelStatistics) {
+
+        if (infectionStrategy == null) {
+            throw new IllegalArgumentException(
+                    "Infection strategy cannot be null."
+            );
+        }
+
+        this.infectionStrategy = infectionStrategy;
+        this.parallelStatistics = parallelStatistics;
+
         setBackground(Color.LIGHT_GRAY);
+
+        checkStatisticsCalculation();
         createPeople();
         updateStatusCounts();
     }
 
-    // Creates the starting population.
+    // Creates the initial population.
     private void createPeople() {
         for (int i = 0; i < TOTAL_PEOPLE; i++) {
             String name = "Person " + (i + 1);
-
-            // Random age between 18 and 80, inclusive.
             int age = 18 + (int) (Math.random() * 63);
 
             if (i < START_INFECTED) {
@@ -120,7 +139,6 @@ public class SimulationPanel extends Panel implements Runnable {
         );
     }
 
-    // Keeps buildings below the information panels.
     private int randomBuildingY(int objectHeight) {
         return 150 + randomPosition(
                 Math.max(100, getHeight() - 150),
@@ -128,7 +146,7 @@ public class SimulationPanel extends Panel implements Runnable {
         );
     }
 
-    // Creates the buildings and starts the simulation.
+    // Creates the buildings and starts the simulation loop.
     public void startSimulation() {
         if (running) {
             return;
@@ -180,7 +198,7 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
-    // Updates the model before requesting another drawing.
+    // Updates movement and health before calculating the new counts.
     private void updateSimulation() {
         long now = System.currentTimeMillis();
 
@@ -190,7 +208,7 @@ public class SimulationPanel extends Panel implements Runnable {
             person.move(getWidth(), getHeight());
         }
 
-        // Infection and natural health changes are checked once per second.
+        // These health rules are checked once per second.
         if (now - lastHealthCheck >= 1000) {
             spreadInfection();
             naturalRecovery(now);
@@ -203,29 +221,87 @@ public class SimulationPanel extends Panel implements Runnable {
         buildingTreatment(now);
         vaccinateAtHospital(now);
 
-        // Calculate statistics after all changes for this update.
         updateStatusCounts();
     }
 
     /*
-     * Groups people by the status returned by their subclass.
-     * counting() gives the number of people in each group.
+     * Capture status values on the simulation thread first.
+     * Parallel workers only receive Strings, not live Person objects.
      *
-     * For example:
-     * Healthy -> 95
-     * Infected -> 5
-     *
-     * Vaccinated people still belong to the Healthy group.
+     * Vaccinated people remain part of the Healthy count.
      */
     private void updateStatusCounts() {
-        Map<String, Long> counts = people.stream()
-                .collect(Collectors.groupingBy(
-                        Person::getStatus,
-                        Collectors.counting()
-                ));
+        List<String> statuses = people.stream()
+                .map(Person::getStatus)
+                .collect(Collectors.toUnmodifiableList());
 
-        // Publish a completed map that cannot be modified.
+        Map<String, Long> counts =
+                countStatuses(statuses, parallelStatistics);
+
         statusCounts = Map.copyOf(counts);
+    }
+
+    /*
+     * Selects sequential or parallel processing.
+     * groupingBy() creates the groups and counting() counts each group.
+     * No shared counter is updated manually.
+     */
+    private Map<String, Long> countStatuses(
+            List<String> statuses,
+            boolean parallel) {
+
+        Stream<String> stream;
+
+        if (parallel) {
+            stream = statuses.parallelStream();
+        } else {
+            stream = statuses.stream();
+        }
+
+        return stream.collect(Collectors.groupingBy(
+                status -> status,
+                Collectors.counting()
+        ));
+    }
+
+    // Checks both calculation modes against known expected results.
+    private void checkStatisticsCalculation() {
+        List<String> sample = List.of(
+                "Healthy",
+                "Infected",
+                "Healthy",
+                "Recovered"
+        );
+
+        Map<String, Long> expected = Map.of(
+                "Healthy", 2L,
+                "Infected", 1L,
+                "Recovered", 1L
+        );
+
+        Map<String, Long> sequential =
+                countStatuses(sample, false);
+
+        Map<String, Long> parallel =
+                countStatuses(sample, true);
+
+        if (!expected.equals(sequential)
+                || !expected.equals(parallel)) {
+
+            throw new IllegalStateException(
+                    "Health status counting produced incorrect results."
+            );
+        }
+
+        List<String> empty = List.of();
+
+        if (!countStatuses(empty, false).isEmpty()
+                || !countStatuses(empty, true).isEmpty()) {
+
+            throw new IllegalStateException(
+                    "An empty population should produce no status counts."
+            );
+        }
     }
 
     private void spawnTents() {
@@ -250,16 +326,13 @@ public class SimulationPanel extends Panel implements Runnable {
         );
     }
 
-    // Buildings disappear and return at different intervals.
+    // Buildings appear and disappear at different intervals.
     private void updateBuildings(long now) {
-
-        // Tents remain available for five seconds.
         if (tentsActive && now - tentStart >= 5000) {
             tentsActive = false;
             tents.clear();
         }
 
-        // Tents return ten seconds after their previous appearance.
         if (!tentsActive && now - lastTent >= 10000) {
             spawnTents();
 
@@ -268,12 +341,10 @@ public class SimulationPanel extends Panel implements Runnable {
             lastTent = now;
         }
 
-        // The hospital remains available for three seconds.
         if (hospitalActive && now - hospitalStart >= 3000) {
             hospitalActive = false;
         }
 
-        // The hospital returns every fifteen seconds.
         if (!hospitalActive && now - lastHospital >= 15000) {
             spawnHospital();
 
@@ -283,12 +354,10 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
-    // Checks whether infected people can infect nearby healthy people.
     private void spreadInfection() {
-
         /*
-         * Transitions replace objects in the people list.
-         * This copy keeps newly infected people from spreading
+         * Health transitions replace objects in the people list.
+         * This copy prevents newly infected people from spreading
          * the virus during the same infection check.
          */
         ArrayList<Person> snapshot = new ArrayList<>(people);
@@ -307,7 +376,7 @@ public class SimulationPanel extends Panel implements Runnable {
 
                 Healthy healthy = (Healthy) target;
 
-                // Immunity reduces infection risk without guaranteeing protection.
+                // Preserve the existing immunity protection rule.
                 if (healthy.isImmune()
                         && Math.random() < VACCINE_EFFECTIVENESS) {
                     continue;
@@ -329,30 +398,15 @@ public class SimulationPanel extends Panel implements Runnable {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Applies the simulation's age-based infection rules.
+    /*
+     * Strategy pattern: the panel delegates the decision.
+     * Age and exposure rules belong to the selected strategy.
+     */
     private boolean shouldInfect(Healthy person) {
-        int chance = virus.getSpreadPercentage();
-
-        if (person.getAge() < 30) {
-            person.addExposure();
-
-            // Younger people need at least two close contacts.
-            if (person.getExposureCount() < 2) {
-                return false;
-            }
-
-            chance -= 20;
-        } else if (person.getAge() > 50) {
-            chance += 25;
-        }
-
-        // Keep the final infection chance between 5% and 90%.
-        chance = Math.max(5, Math.min(chance, 90));
-
-        return Math.random() * 100 < chance;
+        return infectionStrategy.shouldInfect(person, virus);
     }
 
-    // Changes health status while preserving identity and movement.
+    // Preserves identity, position and movement during the transition.
     private void infect(int index, Healthy person) {
         people.set(index, new Infected(
                 person.getId(),
@@ -366,7 +420,6 @@ public class SimulationPanel extends Panel implements Runnable {
         ));
     }
 
-    // Gives infected people a chance to recover without treatment.
     private void naturalRecovery(long now) {
         for (int i = 0; i < people.size(); i++) {
             if (!(people.get(i) instanceof Infected)) {
@@ -375,7 +428,8 @@ public class SimulationPanel extends Panel implements Runnable {
 
             Infected infected = (Infected) people.get(i);
 
-            long infectedTime = now - infected.getInfectedSince();
+            long infectedTime =
+                    now - infected.getInfectedSince();
 
             // Natural recovery starts after fifteen seconds.
             if (infectedTime < 15000) {
@@ -398,7 +452,7 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
-    // Healthy people receive vaccination after two seconds in the hospital.
+    // Healthy people receive vaccination after two seconds inside.
     private void vaccinateAtHospital(long now) {
         if (!hospitalActive || hospital == null) {
             return;
@@ -429,7 +483,7 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
-    // Checks whether infected people have stayed in treatment long enough.
+    // Treatment depends on how long the infected person stays inside.
     private void buildingTreatment(long now) {
         for (int i = 0; i < people.size(); i++) {
             if (!(people.get(i) instanceof Infected)) {
@@ -454,7 +508,7 @@ public class SimulationPanel extends Panel implements Runnable {
                     infected.setTentEntryTime(now);
                 }
 
-                // Recovery tents require two seconds of continuous treatment.
+                // Tents require two seconds of continuous treatment.
                 if (now - infected.getTentEntryTime() >= 2000) {
                     recover(i, infected);
                     continue;
@@ -471,7 +525,7 @@ public class SimulationPanel extends Panel implements Runnable {
                     infected.setHospitalEntryTime(now);
                 }
 
-                // Hospital treatment takes one second.
+                // Hospital treatment requires one second.
                 if (now - infected.getHospitalEntryTime() >= 1000) {
                     recover(i, infected);
                 }
@@ -493,7 +547,6 @@ public class SimulationPanel extends Panel implements Runnable {
         ));
     }
 
-    // Recovered people eventually return to Healthy with immunity.
     private void recoveredToHealthy(long now) {
         for (int i = 0; i < people.size(); i++) {
             if (!(people.get(i) instanceof Recovered)) {
@@ -666,20 +719,24 @@ public class SimulationPanel extends Panel implements Runnable {
         g.drawString(text, x + 35, y);
     }
 
-    // Displays the counts already calculated by the simulation.
     private void drawStats(Graphics g) {
-
         /*
-         * Read the map reference once so all displayed counts
-         * come from the same completed update.
+         * Read the reference once so all displayed values
+         * come from the same completed statistics update.
          */
         Map<String, Long> counts = statusCounts;
 
-        // A status may be absent when nobody currently has that status.
-        int healthy = counts.getOrDefault("Healthy", 0L).intValue();
-        int infected = counts.getOrDefault("Infected", 0L).intValue();
-        int recovered = counts.getOrDefault("Recovered", 0L).intValue();
-        int dead = counts.getOrDefault("Dead", 0L).intValue();
+        int healthy =
+                counts.getOrDefault("Healthy", 0L).intValue();
+
+        int infected =
+                counts.getOrDefault("Infected", 0L).intValue();
+
+        int recovered =
+                counts.getOrDefault("Recovered", 0L).intValue();
+
+        int dead =
+                counts.getOrDefault("Dead", 0L).intValue();
 
         int total = healthy + infected + recovered + dead;
 
