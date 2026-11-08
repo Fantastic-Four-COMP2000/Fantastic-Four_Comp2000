@@ -1,6 +1,10 @@
 import java.awt.*;
 import java.util.ArrayList;
 
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 public class SimulationPanel extends Panel implements Runnable {
 
     private ArrayList<Person> people = new ArrayList<>();
@@ -503,6 +507,7 @@ public class SimulationPanel extends Panel implements Runnable {
         drawPeople(g);
         drawLegend(g);
         drawStats(g);
+        drawAgeRiskPanel(g);
     }
 
 
@@ -616,6 +621,56 @@ public class SimulationPanel extends Panel implements Runnable {
         g.setColor(Color.BLACK);
 
         g.drawString(text,x + 35,y);
+    }
+
+    // Classifies a person into the same age bands the InfectionStrategy already uses
+    private String ageBand(Person person) {
+        if (person.getAge() < 30) {
+            return "Under 30";
+        } else if (person.getAge() <= 50) {
+            return "30-50";
+        } else {
+            return "Over 50";
+        }
+    }
+
+    // Nested collector: groups by age band, then by status, counting each group.
+    // Uses parallelStream() since this only reads from `people` and builds a brand
+    // new map; it never mutates shared state, so there's no race condition here
+    // (unlike spreadInfection(), which mutates `people` while iterating it).
+    private Map<String, Map<String, Long>> ageRiskBreakdown() {
+        return people.parallelStream()
+                .collect(Collectors.groupingBy(
+                        this::ageBand,
+                        Collectors.groupingBy(Person::getStatus, Collectors.counting())));
+    }
+
+    // Draws the infection rate per age band, using the breakdown above
+    private void drawAgeRiskPanel(Graphics g) {
+        Map<String, Map<String, Long>> breakdown = ageRiskBreakdown();
+
+        int w = 350;
+        int x = (getWidth() - w) / 2;
+        int y = 10;
+
+        g.setColor(Color.WHITE);
+        g.fillRect(x, y, w, 90);
+        g.setColor(Color.BLACK);
+        g.drawRect(x, y, w, 90);
+        g.drawString("AGE RISK BREAKDOWN", x + 15, y + 20);
+
+        String[] bands = {"Under 30", "30-50", "Over 50"};
+        int lineY = y + 42;
+
+        for (String band : bands) {
+            Map<String, Long> counts = breakdown.getOrDefault(band, Collections.emptyMap());
+            long bandTotal = counts.values().stream().mapToLong(Long::longValue).sum();
+            long bandInfected = counts.getOrDefault("Infected", 0L);
+            double rate = bandTotal == 0 ? 0 : (bandInfected * 100.0 / bandTotal);
+
+            g.drawString(String.format("%s: %d infected / %d (%.0f%%)", band, bandInfected, bandTotal, rate), x + 15, lineY);
+            lineY += 22;
+        }
     }
 
     // Counts each health state and displays the epidemic statistics
