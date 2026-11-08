@@ -646,21 +646,25 @@ public class SimulationPanel extends Panel implements Runnable {
     }
 
     // Draws the infection rate per age band, using the breakdown above
-    private void drawAgeRiskPanel(Graphics g) {
+        private void drawAgeRiskPanel(Graphics g) {
         Map<String, Map<String, Long>> breakdown = ageRiskBreakdown();
 
         int w = 350;
+        int h = 110;
         int x = (getWidth() - w) / 2;
         int y = 10;
 
         g.setColor(Color.WHITE);
-        g.fillRect(x, y, w, 90);
+        g.fillRect(x, y, w, h);
         g.setColor(Color.BLACK);
-        g.drawRect(x, y, w, 90);
+        g.drawRect(x, y, w, h);
         g.drawString("AGE RISK BREAKDOWN", x + 15, y + 20);
 
         String[] bands = {"Under 30", "30-50", "Over 50"};
-        int lineY = y + 42;
+        int lineY = y + 40;
+        int barX = x + 170;
+        int barWidth = 150;
+        int barHeight = 10;
 
         for (String band : bands) {
             Map<String, Long> counts = breakdown.getOrDefault(band, Collections.emptyMap());
@@ -668,11 +672,23 @@ public class SimulationPanel extends Panel implements Runnable {
             long bandInfected = counts.getOrDefault("Infected", 0L);
             double rate = bandTotal == 0 ? 0 : (bandInfected * 100.0 / bandTotal);
 
-            g.drawString(String.format("%s: %d infected / %d (%.0f%%)", band, bandInfected, bandTotal, rate), x + 15, lineY);
-            lineY += 22;
+            g.setColor(Color.BLACK);
+            g.drawString(String.format("%s (%.0f%%)", band, rate), x + 15, lineY + barHeight);
+
+            g.setColor(Color.LIGHT_GRAY);
+            g.fillRect(barX, lineY, barWidth, barHeight);
+
+            int filledWidth = (int) (barWidth * Math.min(rate, 100) / 100.0);
+            g.setColor(Color.RED);
+            g.fillRect(barX, lineY, filledWidth, barHeight);
+
+            g.setColor(Color.BLACK);
+            g.drawRect(barX, lineY, barWidth, barHeight);
+
+            lineY += 24;
         }
     }
-
+    
     // Counts each health state and displays the epidemic statistics
     private void drawStats(Graphics g) {
 
