@@ -7,6 +7,22 @@ public class SimulationPanel extends Panel implements Runnable {
     private ArrayList<RecoveryTent> tents = new ArrayList<>();
 
     private Virus virus = new Virus("Zombie Virus", 45);
+
+
+    // Strategy pattern: one lambda per age-based infection rule
+    private final InfectionStrategy underThirtyStrategy = (baseChance, person) -> {
+        person.addExposure();
+        if (person.getExposureCount() < 2) {
+            return -1;
+        }
+        return baseChance - 20;
+   
+    };
+    
+    private final InfectionStrategy overFiftyStrategy = (baseChance, person) -> baseChance + 25;
+    private final InfectionStrategy normalStrategy = (baseChance, person) -> baseChance;
+
+
     private Hospital hospital;
 
     // Controls the simulation loop
@@ -57,12 +73,11 @@ public class SimulationPanel extends Panel implements Runnable {
             int age = 18 + (int)(Math.random() * 63);
 
             if (i < START_INFECTED) {
-                people.add(new Infected(
-                    name,age,virus,randomX(),randomY(),randomSpeed(),randomSpeed()));
+                people.add(PersonCreator.createInfected(name, age, virus, randomX(), randomY(), randomSpeed(), randomSpeed()));
 
             } else {
                 boolean vaccinated = Math.random() < VACCINATION_RATE;
-                people.add(new Healthy(name,age,randomX(),randomY(),randomSpeed(),randomSpeed(),vaccinated));
+                people.add(PersonCreator.createHealthy(name, age, randomX(), randomY(), randomSpeed(), randomSpeed(), vaccinated));
             }
         }
     }
@@ -265,47 +280,40 @@ public class SimulationPanel extends Panel implements Runnable {
     }
 
 
-    private boolean shouldInfect(
-            Healthy person) {
+     // delegates the age-based adjustment to a strategy
+    private boolean shouldInfect(Healthy person) {
 
-        int chance = virus.getSpreadPercentage();
-        // Under 30:
-        // two close contacts required
-        if (person.getAge() < 30) {
+        int baseChance = virus.getSpreadPercentage();
+        InfectionStrategy strategy = strategyFor(person);
+        int chance = strategy.adjustChance(baseChance, person);
 
-            person.addExposure();
-
-            if (person.getExposureCount() < 2) {
-                return false;
-            }
-
-            chance -= 20;
+        if (chance < 0) {
+            return false;
         }
 
-        // Over 50:
-        // more likely to become infected
-        else if (person.getAge() > 50) {
-
-            chance += 25;
-        }
-
-        chance =Math.max(5,Math.min(chance, 90));
+        chance = Math.max(5, Math.min(chance, 90));
 
         return Math.random() * 100 < chance;
+    }
+
+    // picks which strategy applies to this person's age band
+    private InfectionStrategy strategyFor(Healthy person) {
+
+        if (person.getAge() < 30) {
+            return underThirtyStrategy;
+        } 
+        else if (person.getAge() > 50) {
+            return overFiftyStrategy;
+        
+        } else {
+            return normalStrategy;
+        }
     }
 
 
     private void infect(int index,Healthy person) {
 
-        people.set(index,new Infected(
-                        person.getId(),
-                        person.getName(),
-                        person.getAge(),
-                        virus,
-                        person.getX(),
-                        person.getY(),
-                        person.getSpeedX(),
-                        person.getSpeedY()));
+        people.set(index, PersonCreator.createInfected(person, virus));
     }
 
     // Gives infected people a chance to recover naturally
@@ -443,20 +451,9 @@ public class SimulationPanel extends Panel implements Runnable {
         }
     }
 
-    // Replaces an infected person with a recovered person
-    // while preserving their identity, position and movement
-    private void recover(
-            int index,
-            Infected infected) {
-
-        people.set(index,new Recovered(
-                        infected.getId(),
-                        infected.getName(),
-                        infected.getAge(),
-                        infected.getX(),
-                        infected.getY(),
-                        infected.getSpeedX(),
-                        infected.getSpeedY()));
+    
+    private void recover(int index,Infected infected) {
+        people.set(index, PersonCreator.createRecovered(infected));
     }
 
 
@@ -473,15 +470,7 @@ public class SimulationPanel extends Panel implements Runnable {
             Recovered recovered = (Recovered) people.get(i);
 
             if (now - recovered.getRecoveredSince()>= RECOVER_TO_HEALTHY_TIME) {
-                people.set(i,new Healthy(
-                                recovered.getId(),
-                                recovered.getName(),
-                                recovered.getAge(),
-                                recovered.getX(),
-                                recovered.getY(),
-                                recovered.getSpeedX(),
-                                recovered.getSpeedY(),
-                                true));
+                people.set(i, PersonCreator.createHealthy(recovered, true));
             }
         }
     }
@@ -499,13 +488,7 @@ public class SimulationPanel extends Panel implements Runnable {
 
             // Person dies after reaching the maximum infection duration
             if (now - infected.getInfectedSince() >= DEATH_TIME) {
-
-                people.set(i, new Dead(
-                                infected.getId(),
-                                infected.getName(),
-                                infected.getAge(),
-                                infected.getX(),
-                                infected.getY()));
+                people.set(i, PersonCreator.createDead(infected));
             }
         }
     }
