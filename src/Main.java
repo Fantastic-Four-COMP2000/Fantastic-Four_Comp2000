@@ -19,9 +19,7 @@ public class Main {
                 parallelStatistics = true;
             } else {
                 System.out.println(
-                        "Usage: java -cp EpidemicSimulationCode Main "
-                                + "[fixed] [parallel]"
-                );
+                        "Usage: java -cp bin Main " + "[fixed] [parallel]");
                 return;
             }
         }
